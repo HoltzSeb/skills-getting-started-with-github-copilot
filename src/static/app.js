@@ -20,9 +20,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const spotsLeft = details.max_participants - details.participants.length;
 
-        // Create participants list
+        // Create participants list with delete icons and tooltips
         const participantsList = details.participants
-          .map((participant) => `<li>${participant}</li>`)
+          .map(
+            (participant) => `
+              <li>
+                ${participant}
+                <button class="delete-participant" data-activity="${name}" data-email="${participant}" title="Remove participant">❌</button>
+              </li>
+            `
+          )
           .join("");
 
         activityCard.innerHTML = `
@@ -44,9 +51,38 @@ document.addEventListener("DOMContentLoaded", () => {
         option.textContent = name;
         activitySelect.appendChild(option);
       });
+
+      // Add event listeners to delete buttons
+      document.querySelectorAll(".delete-participant").forEach((button) => {
+        button.addEventListener("click", (event) => {
+          const activityName = button.getAttribute("data-activity");
+          const email = button.getAttribute("data-email");
+          unregisterParticipant(activityName, email);
+        });
+      });
     } catch (error) {
       activitiesList.innerHTML = "<p>Failed to load activities. Please try again later.</p>";
       console.error("Error fetching activities:", error);
+    }
+  }
+
+  // Function to unregister a participant
+  async function unregisterParticipant(activityName, email) {
+    try {
+      const response = await fetch(
+        `/activities/${encodeURIComponent(activityName)}/unregister?email=${encodeURIComponent(email)}`,
+        {
+          method: "POST",
+        }
+      );
+
+      if (response.ok) {
+        fetchActivities(); // Refresh activities list
+      } else {
+        console.error("Failed to unregister participant");
+      }
+    } catch (error) {
+      console.error("Error unregistering participant:", error);
     }
   }
 
