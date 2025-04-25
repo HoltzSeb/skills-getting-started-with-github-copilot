@@ -107,7 +107,7 @@ document.addEventListener("DOMContentLoaded", () => {
         messageDiv.textContent = result.message;
         messageDiv.className = "success";
         signupForm.reset();
-        fetchActivities(); // Refresh activities list
+        fetchActivities(); // Refresh activities list dynamically
       } else {
         messageDiv.textContent = result.detail || "An error occurred";
         messageDiv.className = "error";

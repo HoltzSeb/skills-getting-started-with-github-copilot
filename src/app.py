@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
 from pathlib import Path
+from pymongo import MongoClient
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
@@ -19,8 +20,13 @@ current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
 
-# In-memory activity database
-activities = {
+# MongoDB connection
+client = MongoClient('localhost', 27017)
+db = client['mergington_high']
+activities_collection = db['activities']
+
+# Initial activities data
+initial_activities = {
     "Chess Club": {
         "description": "Learn strategies and compete in chess tournaments",
         "schedule": "Fridays, 3:30 PM - 5:00 PM",
@@ -77,6 +83,22 @@ activities = {
     }
 }
 
+def init_db():
+    """Initialize the database with the predefined activities if they don't already exist"""
+    # Drop the existing collection to ensure we start fresh
+    activities_collection.drop()
+    
+    # Insert each activity with the name as the key
+    for activity_name, activity_data in initial_activities.items():
+        activities_collection.insert_one({
+            "name": activity_name,
+            **activity_data
+        })
+    
+    print(f"Database initialized with {activities_collection.count_documents({})} activities.")
+
+# Initialize the database when the app starts
+init_db()
 
 @app.get("/")
 def root():
@@ -85,6 +107,14 @@ def root():
 
 @app.get("/activities")
 def get_activities():
+    """Get all activities with their details"""
+    activities = {}
+    for activity in activities_collection.find():
+        # Remove MongoDB's _id field (not JSON serializable)
+        activity_data = {k: v for k, v in activity.items() if k != '_id'}
+        activity_name = activity_data.pop('name')  # Extract the name field
+        activities[activity_name] = activity_data  # Use name as key
+    
     return activities
 
 
@@ -92,15 +122,45 @@ def get_activities():
 def signup_for_activity(activity_name: str, email: str):
     """Sign up a student for an activity"""
     # Validate activity exists
-    if activity_name not in activities:
+    activity = activities_collection.find_one({"name": activity_name})
+    if not activity:
         raise HTTPException(status_code=404, detail="Activity not found")
 
-    # Get the specificy activity
-    activity = activities[activity_name]
-
-    # Add student
     # Validate student is not already signed up
     if email in activity["participants"]:
-        raise HTTPException(status_code=400, detail="Already signed up for this activity")
-    activity["participants"].append(email)
-    return {"message": f"Signed up {email} for {activity_name}"}
+        raise HTTPException(status_code=400, detail="Student is already signed up")
+
+    # Add student
+    result = activities_collection.update_one(
+        {"name": activity_name},
+        {"$push": {"participants": email}}
+    )
+    
+    if result.modified_count == 1:
+        return {"message": f"Signed up {email} for {activity_name}"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to update activity")
+
+
+@app.post("/activities/{activity_name}/unregister")
+def unregister_from_activity(activity_name: str, email: str):
+    """Unregister a student from an activity"""
+    # Validate activity exists
+    activity = activities_collection.find_one({"name": activity_name})
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    # Validate student is signed up
+    if email not in activity["participants"]:
+        raise HTTPException(status_code=400, detail="Student is not signed up for this activity")
+
+    # Remove student
+    result = activities_collection.update_one(
+        {"name": activity_name},
+        {"$pull": {"participants": email}}
+    )
+    
+    if result.modified_count == 1:
+        return {"message": f"Unregistered {email} from {activity_name}"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to update activity")
